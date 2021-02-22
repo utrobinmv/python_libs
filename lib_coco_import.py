@@ -6,6 +6,7 @@ from lib_pandas import create_dataframe, return_line_by_index
 from lib_opencv import opencv_load_image_from_file, warp_images_card, resize_image_wh
 from lib_geometry import max_angle_line, rotate
 from lib_numpy import random_int
+from lib_dict import in_dictionary
 
 class CocoBoxes:
     list_boxes = ""
@@ -288,7 +289,10 @@ def coco_read_categorie_bbox(data_dict, categorie_name):
 
         metadata = annotation['metadata']
 
-        name_box = metadata['name']
+        if in_dictionary('name', metadata):
+            name_box = metadata['name']
+        else:
+            name_box = ''
 
         x1 = int(image_bbox[0])
         y1 = int(image_bbox[1])

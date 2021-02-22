@@ -2,6 +2,8 @@ import psycopg2
 
 import pandas as pd
 
+from lib_uuid import return_str_uuid
+
 def pg_db_connect(host, port, user, password, dbname, schema):
     return psycopg2.connect(dbname = dbname, user=user, password=password, port=port, host=host, options="-c search_path=dbo," + schema)
 
@@ -25,7 +27,8 @@ def pg_db_init(conn):
                    request_id text,
                    date_time INTEGER,
                    image_name_front text,
-                   image_name_back text)
+                   image_name_back text,
+                   message text)
                """)
 
     cursor.execute("""
@@ -38,6 +41,7 @@ def pg_db_init(conn):
                    request_id text,
                    date_time INTEGER,
                    edit_answer INTEGER,
+                   success INTEGER,
                    answer text)
                """)
 
@@ -109,6 +113,7 @@ def pg_db_init(conn):
                    ALTER TABLE recognition_cloud_edit_answer ALTER answer_changed SET DEFAULT 0;
                    ALTER TABLE recognition_cloud_edit_answer ALTER send_answer SET DEFAULT 0;
                    ALTER TABLE recognition_cloud_edit_answer ALTER answer_download SET DEFAULT 0;
+                   ALTER TABLE recognition_send ALTER success SET DEFAULT 0;
                """)
 
 
@@ -125,9 +130,14 @@ def pg_db_init(conn):
     # 2 - распозналось с ошибкой номера
     # 4 - ошибка фотографирования (пользователя)
 
+    #Колонка которая добавляет признак удаления шаблона
+    cursor.execute("""
+                    ALTER TABLE recognition_cloud_edit_answer ADD COLUMN IF NOT EXISTS template_del integer DEFAULT 0;
+               """)
+
     conn.commit()
 
-def pg_db_recognition_cloud_edit_answer(con, coud_id, date_time, correct_recognition, correct_recognition_number, send_answer, answer_prev, answer_edit):
+def pg_db_recognition_cloud_edit_answer(con, coud_id, date_time, correct_recognition, correct_recognition_number, send_answer, answer_prev, answer_edit, update_save):
 
     cursor = con.cursor()
 
@@ -137,6 +147,10 @@ def pg_db_recognition_cloud_edit_answer(con, coud_id, date_time, correct_recogni
     if len(results) == 0:
         command = (f"INSERT INTO recognition_cloud_edit_answer (cloud_id) VALUES ({coud_id});")
         cursor.execute(command)
+    elif update_save == False:
+        cursor.close()
+        #Нельзя перетирать уже имеющийся ответ, при многопользовательской работе
+        return
     
     answer_changed = 0
     if answer_prev != answer_edit:
@@ -161,7 +175,7 @@ def pg_db_recognition_list_edit_answer(con):
                 where send_answer = 0 and 
                 answer_changed = 1 
                 and correct_recognition > 1 
-                and correct_recognition < 5 )) as t2 
+                and correct_recognition < 6 )) as t2 
             ON t2.image_name = recognition_receive.image_name_back or 
                 t2.image_name = recognition_receive.image_name_front
                 ''')
@@ -225,7 +239,7 @@ where cloud_id in (select cloud_id from recognition_images where image_name = '{
 
     return cloud_id, answer
 
-def pg_db_new_receive(con, request_id, date_time, image_name_front, image_name_back):
+def pg_db_new_receive(con, request_id, date_time, image_name_front, image_name_back, message):
 
     cursor = con.cursor()
 
@@ -239,18 +253,18 @@ def pg_db_new_receive(con, request_id, date_time, image_name_front, image_name_b
     # command = f"UPDATE recognition_receive SET date_time = {date_time}, image_name_front = '{image_name_front}', image_name_back = '{image_name_back}' where request_id='{request_id}'"
     # cursor.execute(command)
 
-    command = (f"INSERT INTO recognition_receive (request_id, date_time, image_name_front, image_name_back) VALUES ('{request_id}', {date_time}, '{image_name_front}', '{image_name_back}');")
+    command = (f"INSERT INTO recognition_receive (request_id, date_time, image_name_front, image_name_back, message) VALUES ('{request_id}', {date_time}, '{image_name_front}', '{image_name_back}', '{message}');")
     cursor.execute(command)
     
     con.commit()
 
     cursor.close()
 
-def pg_db_new_send(con, request_id, date_time, edit_answer, answer):
+def pg_db_new_send(con, request_id, date_time, edit_answer, answer, success):
 
     cursor = con.cursor()
 
-    command = (f"INSERT INTO recognition_send (request_id, date_time, edit_answer, answer) VALUES ('{request_id}', {date_time}, {edit_answer}, '{answer}');")
+    command = (f"INSERT INTO recognition_send (request_id, date_time, edit_answer, success, answer) VALUES ('{request_id}', {date_time}, {edit_answer}, {success}, '{answer}');")
     cursor.execute(command)
 
     con.commit()
@@ -403,5 +417,272 @@ def pg_db_list_recognition(con):
 
     return df
 
+def pg_db_list_recognition_unsuccess(con, success):
+    '''
+    success=0 - find success == 0
+    success=1 - find success == 1
+    '''
+
+    tmp_unsucess_rec = 'tmp_' + return_str_uuid()
+    tmp_unsuccess_list_receive = 'tmp_' + return_str_uuid()
+    tmp_unsuccess_cloud_id = 'tmp_' + return_str_uuid()
+    tmp_quary_cloud_image = 'tmp_' + return_str_uuid()
+
+    cursor = con.cursor()
+
+    command = (f'''
+        CREATE TEMP TABLE tmp_unsucess_rec
+        AS 
+        SELECT request_id
+                FROM pkg_recognition.recognition_send
+        GROUP BY request_id
+        HAVING MAX(success) = {success};
+        
+        CREATE TEMP TABLE tmp_unsuccess_list_receive
+        AS 
+        SELECT request_id, image_name_front AS image_name
+                FROM pkg_recognition.recognition_receive
+                WHERE request_id in (SELECT request_id FROM tmp_unsucess_rec)
+        UNION
+        SELECT request_id, image_name_back
+                FROM pkg_recognition.recognition_receive
+                WHERE request_id in (SELECT request_id FROM tmp_unsucess_rec)
+                
+        ;
+        
+        CREATE TEMP TABLE tmp_unsuccess_cloud_id
+        AS 
+        SELECT cloud_id FROM pkg_recognition.recognition_images
+        WHERE image_name in (SELECT image_name FROM tmp_unsuccess_list_receive)
+        
+        ;
+        CREATE TEMP TABLE tmp_quary_cloud_image
+        AS 
+        SELECT recognition_cloud_image.cloud_id,
+                   recognition_cloud_image.image_save_name_original,
+                   recognition_cloud_image.image_save_name_card,
+                   recognition_cloud_image.date_time,
+                   recognition_cloud_image.bbox_x1,
+                   recognition_cloud_image.bbox_y1,
+                   recognition_cloud_image.bbox_x2,
+                   recognition_cloud_image.bbox_y2,
+                   recognition_cloud_image.border_inner,
+                   recognition_cloud_image.border_external,
+                   recognition_cloud_image.answer
+        FROM pkg_recognition.recognition_cloud_image
+        LEFT JOIN pkg_recognition.recognition_cloud_edit_answer
+                ON recognition_cloud_image.cloud_id = recognition_cloud_edit_answer.cloud_id
+        WHERE recognition_cloud_edit_answer.cloud_id IS NULL
+        ;
+        
+        SELECT * FROM tmp_quary_cloud_image
+        WHERE cloud_id in (SELECT cloud_id FROM tmp_unsuccess_cloud_id)
+        ''').replace('pkg_recognition.','') \
+            .replace('tmp_unsucess_rec',tmp_unsucess_rec) \
+            .replace('tmp_unsuccess_list_receive',tmp_unsuccess_list_receive) \
+            .replace('tmp_unsuccess_cloud_id',tmp_unsuccess_cloud_id) \
+            .replace('tmp_quary_cloud_image',tmp_quary_cloud_image) \
+            
+    cursor.execute(command)
+
+    df = pd.DataFrame(cursor.fetchall())
+
+    command = (f'''
+        DROP TABLE IF EXISTS tmp_unsucess_rec;
+        DROP TABLE IF EXISTS tmp_unsuccess_list_receive;
+        DROP TABLE IF EXISTS tmp_unsuccess_cloud_id;
+        DROP TABLE IF EXISTS tmp_quary_cloud_image;
+        ''').replace('pkg_recognition.','') \
+            .replace('tmp_unsucess_rec',tmp_unsucess_rec) \
+            .replace('tmp_unsuccess_list_receive',tmp_unsuccess_list_receive) \
+            .replace('tmp_unsuccess_cloud_id',tmp_unsuccess_cloud_id) \
+            .replace('tmp_quary_cloud_image',tmp_quary_cloud_image) \
+ 
+    cursor.execute(command)
+
+
+    if df.empty == False:
+        df.columns = ['cloud_id', 'image_save_name_original', 'image_save_name_card', 'date_time', 'bbox_x1', 'bbox_y1', 'bbox_x2', 'bbox_y2', 'border_inner', 'border_external', 'answer']
+
+    cursor.close()
+
+    return df
+
+
+def pg_db_list_recognition_recover(con):
+
+    cursor = con.cursor()
+
+    command = (f'''
+            SELECT recognition_cloud_image.cloud_id,
+                   recognition_cloud_image.image_save_name_original,
+                   recognition_cloud_image.image_save_name_card,
+                   cloud_edit_answer.date_time,
+                   recognition_cloud_image.bbox_x1,
+                   recognition_cloud_image.bbox_y1,
+                   recognition_cloud_image.bbox_x2,
+                   recognition_cloud_image.bbox_y2,
+                   recognition_cloud_image.border_inner,
+                   recognition_cloud_image.border_external,
+                   cloud_edit_answer.answer_edit AS answer
+            FROM pkg_recognition.recognition_cloud_image AS recognition_cloud_image
+            INNER JOIN 	
+            (SELECT cloud_id, date_time, answer_edit
+                FROM pkg_recognition.recognition_cloud_edit_answer
+                ORDER BY date_time DESC
+                LIMIT 10) AS cloud_edit_answer
+                        ON recognition_cloud_image.cloud_id = cloud_edit_answer.cloud_id    
+                ''').replace('pkg_recognition.','')
+    cursor.execute(command)
+
+    df = pd.DataFrame(cursor.fetchall())
+
+    if df.empty == False:
+        df.columns = ['cloud_id', 'image_save_name_original', 'image_save_name_card', 'date_time', 'bbox_x1', 'bbox_y1', 'bbox_x2', 'bbox_y2', 'border_inner', 'border_external', 'answer']
+
+    cursor.close()
+
+    return df
+
+def pg_db_list_template_for_del(con):
+    '''
+    Функция возвращает список шаблонов, которые распознаны и прошли через админку и можно удалить их шаблоны из minio
+    '''
+    cursor = con.cursor()
+
+    command = (f'''
+              SELECT image_name, cloud_id
+                 FROM recognition_images WHERE cloud_id in (
+                 SELECT cloud_id FROM recognition_cloud_edit_answer WHERE template_del = 0);
+                ''')
+    
+    cursor.execute(command)
+    
+    results = cursor.fetchall()
+ 
+    result = []
+    if len(results) != 0:
+        for row in results:
+            result.append((row[0],row[1]))
+
+    cursor.close()
+
+    return result
+
+def pg_db_make_template_del(con, list_del):
+    '''
+    Функция возвращает список шаблонов, которые распознаны и прошли через админку и можно удалить их шаблоны из minio
+    '''
+    cursor = con.cursor()
+
+    macro_comand = ''
+
+    for cloud_id in list_del:
+        macro_comand += (f'''UPDATE recognition_cloud_edit_answer SET template_del = 1 WHERE cloud_id = {cloud_id}; ''')
+    
+    cursor.execute(macro_comand)
+
+    con.commit()
+    
+    cursor.close()   
+
+def pg_db_list_recive(con):
+
+    cursor = con.cursor()
+
+    #command = (f'''
+        #SELECT receive_id, request_id, date_time, message, join_front.cloud_id as cloud_id_front, join_back.cloud_id as cloud_id_back, image_name_front, image_name_back
+                #FROM pkg_recognition.recognition_receive
+        #LEFT JOIN (SELECT image_name, cloud_id
+                #FROM pkg_recognition.recognition_images) AS join_front
+                #ON image_name_front = join_front.image_name
+        #LEFT JOIN (SELECT image_name, cloud_id
+                #FROM pkg_recognition.recognition_images) AS join_back
+                #ON image_name_back = join_back.image_name
+        #ORDER BY receive_id DESC LIMIT 10
+        #''').replace('pkg_recognition.','')
+    
+    command = (f'''
+            SELECT receive_id, pkg_recognition.recognition_receive.request_id, date_time, message, join_front.cloud_id as cloud_id_front, join_back.cloud_id as cloud_id_back, image_name_front, image_name_back, last_answers.answer
+                FROM pkg_recognition.recognition_receive
+            LEFT JOIN (SELECT image_name, cloud_id
+                           FROM pkg_recognition.recognition_images) AS join_front
+                ON image_name_front = join_front.image_name
+            LEFT JOIN (SELECT image_name, cloud_id
+                           FROM pkg_recognition.recognition_images) AS join_back
+                ON image_name_back = join_back.image_name
+            
+                LEFT JOIN (
+            
+                            SELECT send_last.request_id, send_last.answer FROM (
+                            SELECT DISTINCT request_id, max(send_id) as max_send_id
+                        FROM pkg_recognition.recognition_send WHERE request_id in (
+                             SELECT request_id
+                        FROM pkg_recognition.recognition_receive	
+                        ORDER BY receive_id DESC LIMIT 20)
+                         GROUP BY request_id ) as send_max
+                        INNER JOIN (SELECT request_id, send_id, answer
+                                            FROM pkg_recognition.recognition_send ORDER BY send_id DESC LIMIT 20) as send_last
+            
+                                ON send_max.request_id = send_last.request_id AND send_max.max_send_id = send_last.send_id		
+                                        ) as last_answers
+            
+                ON pkg_recognition.recognition_receive.request_id = last_answers.request_id
+            
+            ORDER BY receive_id DESC LIMIT 10
+            
+        ''').replace('pkg_recognition.','')
+    
+    cursor.execute(command)
+
+    df = pd.DataFrame(cursor.fetchall())
+
+    if df.empty == False:
+        df.columns = ['receive_id', 'request_id', 'date_time', 'message', 'cloud_id_front', 'cloud_id_back', 'image_name_front', 'image_name_back', 'answer']
+
+    cursor.close()
+
+    return df
+
+def pg_db_list_cards(conn):
+
+    cursor = conn.cursor()
+
+    cursor.execute(f'''SELECT card_name, template_id from card_store_template
+                   where is_branded_template is true
+                   and is_public_template is true
+                   and active is true
+                   ORDER BY card_name
+                   ''')
+
+    df = pd.DataFrame(cursor.fetchall())
+    df.columns = ['card_name', 'template_id']
+
+    cursor.close()
+
+    return df
+
+
+
+def pg_db_recognition_state_cloud_edit_answer(con):
+
+    cursor = con.cursor()
+
+    command = (f'''
+              SELECT date_time
+	         FROM recognition_cloud_edit_answer
+              ORDER BY date_time LIMIT 1;
+                ''')
+    
+    cursor.execute(command)
+    results = cursor.fetchall()
+ 
+    result = 0
+    if len(results) != 0:
+        for row in results:
+            result = row[0]
+            break
+
+    return result
 
 # check_init_db(connect)

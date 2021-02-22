@@ -23,17 +23,32 @@ def minio_upload_file(minioClient, backet_name, file_name, data):
 
     # return data
 
-def minio_download_file(minioClient, backet_name, file_name):
+def minio_download_file(minioClient, backet_name, file_name, error_if_not_exist = True):
     check_backet = minioClient.bucket_exists(backet_name)
     data = ""
 
     if check_backet:
-        response = minioClient.get_object(backet_name, file_name)
-        data = response.data
-        response.close()
-        response.release_conn()
+        
+        if error_if_not_exist == False:
+            try:
+                response = minioClient.get_object(backet_name, file_name)
+                data = response.data
+                response.close()
+                response.release_conn()
+                
+            except:
+                pass
+            
+        else:
+            response = minioClient.get_object(backet_name, file_name)
+            data = response.data
+            response.close()
+            response.release_conn()
 
     return data
+
+def minio_delete_file(minioClient, backet_name, file_name):
+    minioClient.remove_object(backet_name, file_name)
 
 # def minio_2_download_file(server_minio_host, server_minio_port, server_minio_access_key, server_minio_secret_key, backet_name, file_name):
 #     # global server_minio_host

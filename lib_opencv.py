@@ -42,8 +42,7 @@ def opencv_load_image_from_file(filename):
     return image
 
 def opencv_save_image_to_file(filename, image):
-    image = cv2.imwrite(filename, image)
-    return image
+    cv2.imwrite(filename, image)
 
 def rotate_image(mat, angle):
     """
@@ -170,3 +169,15 @@ def increase_brightness(img, value=0):
     img = cv2.cvtColor(final_hsv, cv2.COLOR_HSV2BGR)
     return img
 
+def view_tesseract_boxes(img, boxes):
+    '''
+    Процедура отрисовывает прямоугольники сгенерированные функцией pytesseract.image_to_boxes
+    '''
+    h, w, c = img.shape
+    for b in boxes.splitlines():
+        b = b.split(' ')
+        img = cv2.rectangle(img, (int(b[1]), h - int(b[2])), (int(b[3]), h - int(b[4])), (0, 255, 0), 2)
+    
+
+def image_cut_rectangle(image, x1, y1, x2, y2):
+    return image[y1:y2,x1:x2]

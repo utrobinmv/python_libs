@@ -30,3 +30,24 @@ def make_tmp_dir():
 
 def dir_exist(path):
     return os.path.exists(path)
+
+def dir_is_dir(path):
+    return os.path.isdir(path)
+
+def dir_listdir(path):
+    
+    list_dir = os.listdir(path)
+    
+    return list_dir  
+
+def save_text_to_file(filename,str_text):
+    my_file = open(filename, "w")
+    my_file.write(str_text)
+    my_file.close()    
+    
+def filename_without_ext(filename):
+    
+    full_name = os.path.basename(filename)
+    name = os.path.splitext(full_name)[0]    
+    
+    return name

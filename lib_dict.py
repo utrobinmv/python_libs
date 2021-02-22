@@ -4,3 +4,6 @@ def add_two_dict(dict1, dict2):
     получается один общий словарь
     '''
     return dict(list(dict1.items()) + list(dict2.items()))
+
+def in_dictionary(key, dict):
+    return key in dict
