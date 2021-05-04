@@ -51,3 +51,18 @@ def filename_without_ext(filename):
     name = os.path.splitext(full_name)[0]    
     
     return name
+
+def read_text_file_with_utf8_start(filename):
+    
+    #bytes = min(32, os.path.getsize(filename))
+    #raw = open(filename, 'rb').read(bytes)
+    #if raw.startswith(codecs.BOM_UTF8):
+        #encoding = 'utf-8-sig'
+    #else:
+        #result = chardet.detect(raw)
+        #encoding = result['encoding']
+
+    with open(filename, 'r', encoding="utf-8-sig") as f:
+        txt_lines = f.read().splitlines()    
+        
+    return txt_lines

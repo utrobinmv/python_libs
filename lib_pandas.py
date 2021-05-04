@@ -52,6 +52,41 @@ def pandas_series_to_dict(series):
     '''
     return series.to_dict()
 
+
+def df_start_insert_row(df):
+    '''
+    Вставляет строку в начало спписка, после чего изменяет индексы
+    '''
+    df_copy = df.copy()
+    df_copy.loc[-1] = [0,0,CONST_EMPTY_CARD_NAME,'']  # adding a row
+    df_copy.index = df_copy.index + 1  # shifting index
+    df_copy = df_copy.sort_index()    
+    return df_copy
+
+def df_replace_value_space(data):
+    '''
+    Процедура заменяет все пробелы в значения на nan
+    '''
+    data.replace({' ':np.nan},inplace=True)
+
+def df_replace_nan_to_zero_val(data):
+    '''
+    Если процедура находит nan в ячейке, заполняет наиболее частым значением в столбце
+    I filled all fields with the most frequent value in the column 
+    '''
+    df = data.fillna(data.apply(lambda x : x.mode()[0]))  
+    return df
+
+def df_columns_to_numeric(data):
+    '''
+    Пытается изменить тип числовых столбцов на числовой, если не может, пропускает его и не изменяет тип
+    # If I do everything correctly, then all numeric columns have correct type (int or float)
+    '''
+    
+    df = data.apply(pd.to_numeric, errors='ignore')
+    return df
+
+
 def pandas_dataframe_to_list(df):
     '''
     Перебирает в цикле все строки dataframe, и превращает их в массив словарей
@@ -209,6 +244,16 @@ def dataframe_fillna(test_data):
     '''
     return test_data.fillna('None')
 
+def dataframe_findna_procent(df):
+    '''
+    Функция проверяет, есть в данных df значение null хотя бы в одной из ячеек
+    Возвращает таблицу вероятностей NA для каждой колонки
+    Ответ: 
+     Таблица
+    '''
+    return df.isnull().mean()
+
+
 def dataframe_find_null(df):
     '''
     Функция проверяет, есть в данных df значение null хотя бы в одной из ячеек
@@ -349,6 +394,73 @@ def dataframe_to_parquet(df, filename_parquet):
     '''
     
     df.to_parquet(filename_parquet)
+
+
+#Sklearn
+def category_raspred(df, cat_cols):
+    # Посмотрим на распределение категориальных фичей
+    #Пример:
+    #cat_cols = [
+    #    'currency',
+    #    'prime_genre'
+    #]    
+    #Показывает для каждой колонки количество уникальных признаков
+    for col in cat_cols:
+        print(f"{col} DISTRIBUTION")
+        print(df[col].value_counts())
+        print()    
+
+
+def view_raspred(df, num_cols, cat_cols, target_col):
+    # Посмотрим на распредление величин
+    # num_cols - числовые колонки
+    # cat_cols - категориальные колонки
+    # target_col - колонки label или y (колонка ответов)
+    df.hist(column=num_cols+cat_cols+[target_col], figsize=(14, 10))    
+    
+    
+def view_correl(df):
+    #посмотрим на корреляции между фичами
+    #Строит таблицу корреляции между различными признаками
+    df.corr().style.background_gradient(cmap='coolwarm').set_precision(2)
+    
+    
+def view_correl_graph(df, target_col):
+    #посмотрим на корреляции между фичами
+    #В виде графиков
+    pd.plotting.scatter_matrix(df, c=df[target_col], figsize=(15, 15), marker='o',
+                            hist_kwds={'bins': 20}, s=10, alpha=.8)    
+
+
+def df_get_dummies(df, cat_cols):
+    '''
+    Некий аналог OneHodEncoding, когда датафрейм с колонкой категориального 
+    признака превращает в датафрейм с количеством колонок, равному количеству
+    категорий.
+    
+    '''
+
+    data = pd.get_dummies(df, columns=cat_cols)
+    
+    #Этот код заменяет список категориальных колонок, на новые, вновь созданные
+    cat_cols_new = []
+    for col_name in cat_cols:
+        cat_cols_new.extend(filter(lambda x: x.startswith(col_name), data.columns))
+    cat_cols = cat_cols_new    
+    
+    return data
+    
+    
+#Рисование графиков
+def view_pie_data(data, cat_cols):
+    '''
+    Отображает соотношение в данных значений категориальных признаков в виде круговых диаграмм
+    Работает в jupyter notebook
+    '''
+    data[cat_cols].apply(pd.value_counts).plot(kind='pie', layout=(-1,2), figsize=(15, 80), subplots=True)
+    
+    #Аналогично для числовых колонок
+    data['Churn'].value_counts().plot(kind='pie', figsize=(5, 5))
 
 
 #Мое творчество

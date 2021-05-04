@@ -11,7 +11,47 @@ def plot_scater(x_coords, y_coords):
     '''
     Рисует точки на плоскости, с заданными координатами
     '''
-    plt.scatter(x_coords, y_coords, color = 'r')
+    plt.scatter(x_coords, y_coords, label='train', color = 'r')
+    
+    
+def plot_plot(x_coords, y_coords):
+    '''
+    Рисует линии из точек, с заданными координатами
+    каждая следующая точка соединяется с предыдущей
+    '''
+    plt.plot(x_coords, y_coords, label='real', color = 'r')
+    
+    
+def plot_instruction():
+    plt.figure(figsize=(20, 7)) # Первое число пропорция полотна по горизонтали, вторая пропорция по вертикали.
+
+    #xx, yy = np.meshgrid(np.linspace(np.min(X_train[names[0]]) - eps, np.max(X_train[names[0]]) + eps, 500),
+    #                 np.linspace(np.min(X_train[names[1]]) - eps, np.max(X_train[names[1]]) + eps, 500))
+    #xx, yy = np.mgrid[-1.5:2.5:.01, -1.:1.5:.01]
+
+    ax = None
+
+    for i, types in enumerate([['train', 'test'], ['train'], ['test']]):
+        ax = plt.subplot(1, 3, i + 1, sharey=ax) # Разделяет зону на три графика по горизонтали и 1 по вертикали. Третье число, это номер графика
+        if 'train' in types:
+            plt.scatter(X_train, y_train, label='train', c='b') # Рисует точки
+        if 'test' in types:
+            plt.scatter(X_test, y_test, label='test', c='orange') # Рисует точки
+
+        plt.plot(X, linear_expression(X), label='real', c='g') # Рисует линию
+        plt.plot(X, regressor.predict(X[:, np.newaxis]), label='predicted', c='r') # Рисует линию
+        
+        plt.pcolormesh(xx, yy, Z, cmap=plt.get_cmap('viridis')) #Добавляет некий градиент цветов
+        plt.colorbar() # Добавляет colorbar с используемыми градиентами
+        
+        plt.ylabel('target') #Справа от графика расшифровывает обозначение оси абсцисс Y
+        plt.xlabel('feature') #Снизу от графика расшифровывает обозначение оси абсцисс X
+        plt.title(" ".join(types)) #Сверху отображает заголовок графика
+        plt.grid(alpha=0.2) # Показывает будет ли сетка на графике
+        plt.ylim((0, 150)) #Задает лимит значений по отображаемым осям координат
+        plt.legend() # Отображает легенду на самом графике каким цветом какие линии обозначены
+
+    plt.show()
 
 def plot_2d_dataset(list_train, list_label):
     '''
@@ -33,6 +73,24 @@ def plot_visible_classification(x_coords, y_coords, class_labels):
     plt.figure(figsize=(8,6))
     plt.scatter(x_coords, y_coords, c = class_labels, cmap = colors, s=50)
     
+    
+def roc_auc_print(y_train, y_train_predicted, y_test, y_test_predicted, roc_auc_score):
+    '''
+    Выводит график обучение по roc_auc_score
+    Пример использования:
+        roc_auc_print(y_train, y_train_predicted, y_test, y_test_predicted, metrics.roc_auc_score)
+    '''
+    
+    train_auc = roc_auc_score(y_train, y_train_predicted)
+    test_auc = roc_auc_score(y_test, y_test_predicted)
+    plt.figure(figsize=(10,7))
+    plt.plot(*roc_curve(y_train, y_train_predicted)[:2], label='train AUC={:.4f}'.format(train_auc))
+    plt.plot(*roc_curve(y_test, y_test_predicted)[:2], label='test AUC={:.4f}'.format(test_auc))
+    legend_box = plt.legend(fontsize='large', framealpha=1).get_frame()
+    legend_box.set_facecolor("white")
+    legend_box.set_edgecolor("black")
+    plt.plot(np.linspace(0,1,100), np.linspace(0,1,100))
+    plt.show()
 
 def visible_matrix_hist(df, list_futures, list_target):
     plt.figure(figsize=(20,24)) #Размеры
@@ -47,6 +105,19 @@ def visible_matrix_hist(df, list_futures, list_target):
             plt.xlabel('cm')
             plt.ylabel(feature_name[:-4]) # feature_name - это строка, выводит значение без последних 4х символов
             
+            
+def visible_hist_categorial(data, cat_cols):
+    '''
+    # Построим гистограммы для категориальных признаков
+    '''
+    f,ax = plt.subplots(8, 2, figsize=(20,40))
+    for ax, col in zip(ax.ravel(), cat_cols):
+        dat = data[col].value_counts()
+        sns.barplot(y=dat.index, x=dat.values, alpha=0.6, ax=ax)
+        ax.set_title(col, fontsize=16)
+        ax.tick_params(labelsize=14)
+    plt.subplots_adjust(wspace=0.4, hspace=0.2)            
+
 def scatter(actual, predicted, T):
     '''
     Рисует один scatter plot
@@ -173,3 +244,77 @@ def view_learning_mass_cross_val_score(n_trees, scoring):
     plt.legend(loc='lower right')    
     
     
+def view_learn_losses(losses):  
+    plt.figure(figsize=(12, 8))
+    plt.plot(range(len(losses)), losses)
+    plt.xlabel("Iteration")
+    plt.ylabel("Loss")
+    plt.show()    
+    
+    
+def plot_trainig(train_losses, valid_losses, valid_accuracies):
+    '''
+    Выводит график обучения модели
+    model = Model().to(device)
+    criterion = nn.CrossEntropyLoss()
+    optimizer = optim.SGD(model.parameters(), lr=0.001, momentum=0.9)
+    
+    info = fit(10, model, criterion, optimizer, *get_dataloaders(4))
+    plot_trainig(*info)
+    '''
+    plt.figure(figsize=(12, 9))
+    plt.subplot(2, 1, 1)
+    plt.xlabel("epoch")
+    plt.plot(train_losses, label="train_loss")
+    plt.plot(valid_losses, label="valid_loss")
+    plt.legend()
+    
+    plt.subplot(2, 1, 2)
+    plt.xlabel("epoch")
+    plt.plot(valid_accuracies, label="valid accuracy")
+    plt.legend()
+    
+def imshow_from_dataloader(inp, title=None):
+    '''
+    Процедура выводит в ряд несколько картинок Dataloader
+    # Получим 1 батч (картнки-метки) из обучающей выборки
+    
+    
+    Пример использования
+    inputs, classes = next(iter(dataloaders['train']))
+    
+    # Расположим картинки рядом
+    out = torchvision.utils.make_grid(inputs)
+    
+    imshow(out, title=[class_names[x] for x in classes])
+    '''
+    
+    
+    
+    """Imshow for Tensor."""
+    inp = inp.numpy().transpose((1, 2, 0))
+    mean = np.array([0.485, 0.456, 0.406])
+    std = np.array([0.229, 0.224, 0.225])
+    inp = std * inp + mean
+    inp = np.clip(inp, 0, 1)
+    plt.figure(figsize=(15, 12))
+    plt.imshow(inp)
+    if title is not None:
+        plt.title(title)
+    plt.pause(0.001)
+
+
+def view_batch():
+    '''
+    Пример выводит 9 картинок в матрице 3х3
+    из датасета
+    '''
+    fig, ax = plt.subplots(nrows=3, ncols=3,figsize=(8, 8), \
+                            sharey=True, sharex=True)
+    for fig_x in ax.flatten():
+        random_characters = int(np.random.uniform(0,1000))
+        im_val, label = datasets_list['train'][random_characters]
+        img_label = " ".join(map(lambda x: x.capitalize(),\
+                    datasets_list['train'].label_encoder.inverse_transform([label])[0].split('_')))
+        imshow(im_val.data.cpu(), \
+              title=img_label,plt_ax=fig_x)    

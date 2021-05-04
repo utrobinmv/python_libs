@@ -12,6 +12,7 @@ from sklearn.pipeline import FeatureUnion
 from sklearn import preprocessing
 from sklearn import ensemble
 from sklearn import tree
+from sklearn import neighbors
 
 import xgboost as xgb
 
@@ -286,6 +287,17 @@ def classifier_model(model, train_data, train_labels, test_data):
     elif model == 11:
         #Модель XGB Boost
         classifier = xgb.XGBClassifier(learning_rate=0.1, max_depth=5, n_estimators = 40, min_child_weight=3)
+    elif model == 12:
+        #Модель KNN
+        #Качество классификации/регрессии методом ближайших соседей зависит от нескольких параметров:
+        # * число соседей `n_neighbors`
+        # * метрика расстояния между объектами `metric`
+        # * веса соседей (соседи тестового примера могут входить с разными весами, например, чем дальше пример, тем с меньшим коэффициентом учитывается его "голос") `weights`
+        #Пример optimal_clf = KNeighborsClassifier(metric = 'manhattan', n_neighbors = 4, weights = 'distance')
+        classifier = neighbors.KNeighborsClassifier(metric = 'manhattan', n_neighbors = 4, weights = 'distance')
+    elif model == 13:
+        #Модель KNN Regressor
+        classifier = neighbors.KNeighborsRegressor(n_neighbors=5)
         
         
   
@@ -318,8 +330,13 @@ def classifier_model(model, train_data, train_labels, test_data):
     elif model == 6:
         #Не предоставляет вероятности
         pass
+    elif model == 12:
+        #Не предоставляет вероятности
+        proba_predictions = classifier.predict_proba(test_data)
       
     return classifier, predictions, proba_predictions
+
+
 
 
 #Оценка качества моделей
@@ -329,6 +346,15 @@ def metrics_accuracy_score(test_labels, labels_predict):
     Метрика: количество правильных ответов
     '''
     return metrics.accuracy_score(test_labels, labels_predict)
+
+
+def print_metrics(y_preds, y):
+    '''
+    Сравнивает результат метрики R^2 с метрикой среднего значения MSE.
+    Если метрика среднего лучше, то вероятнее просто предсказывать движение к среднему
+    '''
+    print(f'R^2: {r2_score(y_preds, y)}')
+    print(f'MSE: {mean_squared_error(y_preds, y)}')
 
 def all_metrics_score(metric, test_labels, labels_predict):
     '''
@@ -396,6 +422,105 @@ def all_metrics_score(metric, test_labels, labels_predict):
         #Метрика r2_score Коэффициент детерминации
         return metrics.r2_score(test_labels, labels_predict)
 
+
+#Процедуры для трансформации признаков
+def ohe_feature_creator(df, columns):
+    '''
+    Обучается признакам по OneHotEncoder
+    '''
+    features = {}
+    
+    for column in columns:
+        ohe = OneHotEncoder()
+        ohe.fit(df[column].values.reshape(-1,1))
+        features[column] = ohe
+        
+    #df = pd.concat([df1, df2])
+    #price_scaler = StandardScaler()
+    #price_scaler.fit(df['lot_price'].values.reshape(-1,1))
+       
+    return features
+
+def ohe_create_features(data, features, columns):
+    '''
+    Создает признаки OneHotEncoder
+    Пример использования:
+        ohe_features = ohe_feature_creator(data, columns=cat_cols)
+        df_01, one_hot_columns = ohe_create_features(data, ohe_features, columns=cat_cols)
+    '''
+    
+    '''
+    Более короткое решение, но нужно адаптировать
+    ohe = OneHotEncoder()
+    #One-hot-encode применим к категориальным данным.
+    array_hot_encoded = ohe.fit_transform(categorical_data).toarray()
+
+    #Преобразуем полученный результат в датафрейм
+    cat_dat_enc = pd.DataFrame(array_hot_encoded, index=data.index, columns=ohe.get_feature_names(cat_cols))
+
+    cat_dat_enc.reset_index(drop=True, inplace=True)
+    '''
+    
+    
+    list_columns = []
+    df = data.copy()
+    
+    for column in columns:
+        values = features[column].transform(data[column].values.reshape(-1,1))
+        
+        #print(values.shape)
+        
+        add_columns = features[column].get_feature_names()
+        
+        for idx, cl in enumerate(add_columns):
+            add_columns[idx] = add_columns[idx].replace('x0', column)
+            add_columns[idx] = add_columns[idx].replace(' ', '_')
+
+        #print(add_columns)
+            
+        dummies = pd.DataFrame(values.toarray(), columns=add_columns)
+        
+        for cl in add_columns:
+            list_columns.append(cl)
+        
+        #print(dummies.shape)
+        
+        df = pd.concat([df, dummies], axis=1)
+
+    return df, list_columns
+
+def feature_creator(df, columns):
+    '''
+    Обучается признакам по Любому другому алгоритму на примере StandardScaler()
+    '''
+    features = {}
+    
+    for column in columns:
+        cls = StandardScaler()
+        cls.fit(df[column].values.reshape(-1,1))
+        features[column] = cls
+       
+    return features
+
+
+def create_features(data, features, columns):
+    '''
+    Создает признаки StandardScaler
+    Пример использования:
+        features = feature_creator(data, columns=num_cols)
+        df_02, scaler_columns = create_features(data, features, columns=num_cols)
+    '''
+    list_columns = []
+    df = data.copy()
+    
+    for column in columns:
+        values = features[column].transform(data[column].values.reshape(-1,1))
+        add_column = column + '_num'
+        df[add_column] = values
+
+        list_columns.append(add_column)
+
+    return df, list_columns
 
 #Подбор оптимальных параметров
 
@@ -475,6 +600,15 @@ def find_model_random_optimized_parameters(classifier, parameters_grid, train_da
 
 
 
+def croLogisticRegressionCV(X_train_scaled, y_train):
+    '''
+    Делает кросс валидацию, и сама подбирает оптимальные параметры логистической регрессии
+    '''
+    # обучим модель логистической регрессии
+    clf = LogisticRegressionCV(scoring='roc_auc', refit=True).fit(X_train_scaled, y_train)
+    clf.sparsify()
+    return clf
+
         
 #Визуальные метрики       
 
@@ -553,7 +687,14 @@ def data_scaler(train_data, test_data, train_labels):
     Функция выполняет масштабирование признаков в наборе данных, чтобы по нему можно было проводить последующее обучение
     Возвращает: отмасштабированные данные scaler_train_data и scaled_test_data
     '''
-    scaler = StandardScaler()
+    type_scaler = 1
+    
+    if type_scaler == 1:
+        scaler = preprocessing.StandardScaler()
+    elif type_scaler == 2:
+        scaler = preprocessing.MinMaxScaler() #Приводит все значения в число от 0 до 1
+    
+    
     scaler.fit(train_data, train_labels)
     scaler_train_data = scaler.transform(train_data)
     scaled_test_data = scaler.transform(test_data)
@@ -680,3 +821,112 @@ def find_learning_curve(estimator, train_data, train_label):
     return train_sizes, train_scores, test_scores
 
 
+### Визуализация и обучение
+
+
+# проверим с помощью функции, использованной на семинаре
+def search_and_draw(X, y, model, param_name, grid, param_scale='ordinary', draw=True):
+    '''
+    Функция проводит перебор параметров и сразу строит график, результатов обучения
+    Пример использования
+    models = [KNeighborsClassifier(), DecisionTreeClassifier()]
+    param_names = ['n_neighbors', 'max_depth']
+    grids = [np.array(np.linspace(4, 30, 8), dtype='int'), np.arange(1, 30)]
+    param_scales = ['log', 'ordinary']
+    for model, param_name, grid, param_scale in zip(models, 
+                                                param_names, 
+                                                grids, 
+                                                param_scales):
+        search_and_draw(X_train, y_train, model, param_name, grid, param_scale)
+    
+    или
+    
+    CV_model = search_and_draw(X_train_scaled, y_train, LogisticRegression(), 'C', 
+                np.array([100, 10, 1, 0.1, 0.01, 0.001]));
+    '''
+    parameters = {param_name: grid}
+    
+    CV_model = GridSearchCV(estimator=model, 
+                            param_grid=parameters,
+                            cv=5, 
+                            scoring='roc_auc',
+                            n_jobs=-1, 
+                            verbose=10)
+    CV_model.fit(X, y)
+    means = CV_model.cv_results_['mean_test_score']
+    error = CV_model.cv_results_['std_test_score']
+    
+    if draw:
+        plt.figure(figsize=(15,8))
+        plt.title('choose ' + param_name)
+
+
+        if (param_scale == 'log'):
+            plt.xscale('log')
+
+        plt.plot(grid, means, label='mean values of score', color='red', lw=3)
+
+        plt.fill_between(grid, means - 2 * error, means + 2 * error, 
+                         color='green', label='filled area between errors', alpha=0.5)
+        legend_box = plt.legend(framealpha=1).get_frame()
+        legend_box.set_facecolor("white")
+        legend_box.set_edgecolor("black")
+        plt.xlabel('parameter')
+        plt.ylabel('roc_auc')
+        plt.show()
+        
+    return CV_model
+
+
+#Стекинг
+#Генерирует различные признаки из моделей, после чего применяет логистическую регрессию
+def compute_meta_feature(model, X_train, X_test, y_train, cv):
+    try:
+        train_answers = cross_val_predict(model, X_train, y_train, cv=cv, method='predict_proba')[:, 1]
+        model.fit(X_train, y_train)
+        return train_answers, model.predict_proba(X_test)[:, 1]
+    
+    except Exception:
+        train_answers = cross_val_predict(model, X_train, y_train, cv=cv, method='predict')[:, 1]
+        model.fit(X_train, y_train)
+        return train_answers, model.predict(X_test)[:, 1]
+        
+def steking_run():
+    '''
+    Процедура делает стекинг
+    А именно на датасете данных, обучает несколько модель, результаты которые добавляет в качестве признаков к основному датасету
+    после чего выполняет линейную регрессию.
+    '''
+    models = []
+    models.append(KNeighborsClassifier(n_jobs=-1, n_neighbors=30))
+    models.append(LogisticRegression())
+    models.append(RandomForestClassifier(max_depth=3, n_estimators=50, n_jobs=-1))
+    models.append(RandomForestClassifier(max_depth=7, n_estimators=50, n_jobs=-1))
+    models.append(DecisionTreeClassifier(max_depth=8))
+    
+    meta_features_train = np.zeros((X_train.shape[0], 0))
+    meta_features_test = np.zeros((X_test.shape[0], 0))
+    
+    for model in tqdm(models):
+        train, test = compute_meta_feature(model, X_train, X_test, y_train, 5)
+        meta_features_train = np.append(meta_features_train, train.reshape((train.size, 1)), axis=1)
+        meta_features_test = np.append(meta_features_test, test.reshape((test.size, 1)), axis=1)
+
+    stacking_model = LogisticRegression()
+    stacking_model.fit(meta_features_train, y_train)
+
+    y_train_predicted = stacking_model.predict_proba(meta_features_train)[:, 1]
+    y_test_predicted = stacking_model.predict_proba(meta_features_test)[:, 1]
+
+    #view result
+    train_auc = roc_auc_score(y_train, y_train_predicted)
+    test_auc = roc_auc_score(y_test, y_test_predicted)
+
+    plt.figure(figsize=(10,7))
+    plt.plot(*roc_curve(y_train, y_train_predicted)[:2], label='train AUC={:.4f}'.format(train_auc))
+    plt.plot(*roc_curve(y_test, y_test_predicted)[:2], label='test AUC={:.4f}'.format(test_auc))
+    legend_box = plt.legend(fontsize='large', framealpha=1).get_frame()
+    legend_box.set_facecolor("white")
+    legend_box.set_edgecolor("black")
+    plt.plot(np.linspace(0,1,100), np.linspace(0,1,100))
+    plt.show()

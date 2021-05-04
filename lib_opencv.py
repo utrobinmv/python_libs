@@ -85,6 +85,27 @@ def k_resize_image(image, min_size):
 
     return r
 
+def resize_image_width(image, min_width, interpolation = cv2.INTER_AREA):
+
+    #Изменим размеры фото
+    (image_height, image_width, image_color) = image.shape
+
+    # final_wide = 500
+    final_wide = min_width #Выравнивание по меньшей стороне
+    if image_width > final_wide:
+        r = float(final_wide) / image_width
+    else:
+        r = 1
+        return image
+
+    final_high = int(image_height * r)
+    final_wide = int(image_width * r)
+    dim = (final_wide, final_high)
+
+    resized = cv2.resize(image, dim, interpolation = interpolation)
+
+    return resized
+
 def resize_image(image, min_size, interpolation = cv2.INTER_AREA):
 
     #Изменим размеры фото
